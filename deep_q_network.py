@@ -1,8 +1,10 @@
+#coding=utf-8
+
 #!/usr/bin/env python
 from __future__ import print_function
 
 import tensorflow as tf
-import cv2
+# import cv2
 import sys
 sys.path.append("game/")
 import wrapped_flappy_bird as game
@@ -10,13 +12,16 @@ import random
 import numpy as np
 from collections import deque
 
+from PIL import Image
+
+
 GAME = 'bird' # the name of the game being played for log files
 ACTIONS = 2 # number of valid actions
 GAMMA = 0.99 # decay rate of past observations
-OBSERVE = 100000. # timesteps to observe before training
-EXPLORE = 2000000. # frames over which to anneal epsilon
+OBSERVE = 10000. # timesteps to observe before training
+EXPLORE = 3000000. # frames over which to anneal epsilon
 FINAL_EPSILON = 0.0001 # final value of epsilon
-INITIAL_EPSILON = 0.0001 # starting value of epsilon
+INITIAL_EPSILON = 0.01 # starting value of epsilon
 REPLAY_MEMORY = 50000 # number of previous transitions to remember
 BATCH = 32 # size of minibatch
 FRAME_PER_ACTION = 1
@@ -97,8 +102,18 @@ def trainNetwork(s, readout, h_fc1, sess):
     do_nothing = np.zeros(ACTIONS)
     do_nothing[0] = 1
     x_t, r_0, terminal = game_state.frame_step(do_nothing)
-    x_t = cv2.cvtColor(cv2.resize(x_t, (80, 80)), cv2.COLOR_BGR2GRAY)
-    ret, x_t = cv2.threshold(x_t,1,255,cv2.THRESH_BINARY)
+    # x_t = cv2.cvtColor(cv2.resize(x_t, (80, 80)), cv2.COLOR_BGR2GRAY)
+    # ret, x_t = cv2.threshold(x_t,1,255,cv2.THRESH_BINARY)
+    
+
+
+    image = Image.fromarray(np.uint8(x_t))
+    #PIL resize
+    image = image.resize((80,80)).convert('L')
+    image = np.asarray(image,dtype=np.float32)
+    # print (image)
+
+    x_t = image
     s_t = np.stack((x_t, x_t, x_t, x_t), axis=2)
 
     # saving and loading networks
@@ -114,7 +129,7 @@ def trainNetwork(s, readout, h_fc1, sess):
     # start training
     epsilon = INITIAL_EPSILON
     t = 0
-    while "flappy bird" != "angry bird":
+    while True:
         # choose an action epsilon greedily
         readout_t = readout.eval(feed_dict={s : [s_t]})[0]
         a_t = np.zeros([ACTIONS])
@@ -127,6 +142,7 @@ def trainNetwork(s, readout, h_fc1, sess):
             else:
                 action_index = np.argmax(readout_t)
                 a_t[action_index] = 1
+                print("Choose Action:%d"%action_index)
         else:
             a_t[0] = 1 # do nothing
 
@@ -136,11 +152,22 @@ def trainNetwork(s, readout, h_fc1, sess):
 
         # run the selected action and observe next state and reward
         x_t1_colored, r_t, terminal = game_state.frame_step(a_t)
-        x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
-        ret, x_t1 = cv2.threshold(x_t1, 1, 255, cv2.THRESH_BINARY)
+
+
+        image = Image.fromarray(np.uint8(x_t1_colored))
+        #PIL resize
+        image = image.resize((80,80)).convert('L')
+        image = np.asarray(image,dtype=np.float32)
+        # print (image)
+        x_t1 = image
         x_t1 = np.reshape(x_t1, (80, 80, 1))
-        #s_t1 = np.append(x_t1, s_t[:,:,1:], axis = 2)
         s_t1 = np.append(x_t1, s_t[:, :, :3], axis=2)
+
+        # x_t1 = cv2.cvtColor(cv2.resize(x_t1_colored, (80, 80)), cv2.COLOR_BGR2GRAY)
+        # ret, x_t1 = cv2.threshold(x_t1, 1, 255, cv2.THRESH_BINARY)
+        # x_t1 = np.reshape(x_t1, (80, 80, 1))
+        # #s_t1 = np.append(x_t1, s_t[:,:,1:], axis = 2)
+        # s_t1 = np.append(x_t1, s_t[:, :, :3], axis=2)
 
         # store the transition in D
         D.append((s_t, a_t, r_t, s_t1, terminal))
@@ -174,6 +201,11 @@ def trainNetwork(s, readout, h_fc1, sess):
                 a : a_batch,
                 s : s_j_batch}
             )
+            c = sess.run(cost,feed_dict = {
+                y : y_batch,
+                a : a_batch,
+                s : s_j_batch})
+            print ("loss:%3f" % c)
 
         # update the old values
         s_t = s_t1
@@ -192,16 +224,19 @@ def trainNetwork(s, readout, h_fc1, sess):
         else:
             state = "train"
 
-        print("TIMESTEP", t, "/ STATE", state, \
-            "/ EPSILON", epsilon, "/ ACTION", action_index, "/ REWARD", r_t, \
-            "/ Q_MAX %e" % np.max(readout_t))
+        # print("TIMESTEP", t, "/ STATE", state, \
+        #     "/ EPSILON", epsilon, "/ ACTION", action_index, "/ REWARD", r_t, \
+        #     "/ Q_MAX %e" % np.max(readout_t))
         # write info to files
-        '''
-        if t % 10000 <= 100:
-            a_file.write(",".join([str(x) for x in readout_t]) + '\n')
-            h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s:[s_t]})[0]]) + '\n')
-            cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
-        '''
+        
+        # if t % 10000 <= 100:
+        #     a_file.write(",".join([str(x) for x in readout_t]) + '\n')
+        #     h_file.write(",".join([str(x) for x in h_fc1.eval(feed_dict={s:[s_t]})[0]]) + '\n')
+        #     x_t1 = np.reshape(image, (80, 80))
+        #     image = Image.fromarray(np.uint8(x_t1))
+        #     image.save("logs_tetris/frame" + str(t) + ".png")
+            # cv2.imwrite("logs_tetris/frame" + str(t) + ".png", x_t1)
+        
 
 def playGame():
     sess = tf.InteractiveSession()
